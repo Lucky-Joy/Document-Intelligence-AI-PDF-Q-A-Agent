@@ -1,5 +1,5 @@
 import os
-from typing import Iterable, List
+from typing import Iterable
 from functools import lru_cache
 
 import streamlit as st
@@ -13,20 +13,33 @@ def load_sbert():
     return SentenceTransformer("all-MiniLM-L6-v2")
 
 class EmbeddingStore:
-    def __init__(self, path: str = "./.data/vector_store"):
+    def __init__(self, path: str = "./.data/vector_store", prefer_persistent: bool = True):
         os.makedirs(path, exist_ok=True)
         self.model = load_sbert()
         self._persistent = False
+        self._path = path
+        self._init_error = None
+
+        if prefer_persistent:
+            try:
+                settings = Settings(chroma_db_impl="duckdb+parquet", persist_directory=path)
+                self.client = chromadb.Client(settings)
+                self.col = self._get_collection("cerevyn_docs")
+                self._persistent = True
+                st.info("Chroma: persistent store initialized.")
+                return
+            except Exception as e:
+                self._init_error = e
+                st.warning(f"Chroma persistent init failed. Falling back to in-memory store. ({type(e).__name__}: {str(e)})")
+
         try:
-            self.client = chromadb.Client(Settings(chroma_db_impl="duckdb+parquet", persist_directory=path))
-            self.col = self._get_collection("cerevyn_docs")
-            self._persistent = True
-            st.info("Chroma persistent store initialized.")
-        except ValueError:
-            st.warning("Chroma persistent init failed: falling back to in-memory store.")
             self.client = chromadb.Client()
             self.col = self._get_collection("cerevyn_docs")
             self._persistent = False
+            st.info("Chroma: using in-memory store.")
+        except Exception as e:
+            st.error(f"Fatal: unable to initialize Chroma in any mode: {e}")
+            raise
 
     def _get_collection(self, name: str):
         try:
@@ -36,14 +49,11 @@ class EmbeddingStore:
 
     def add_documents(self, doc_id: str, chunks: Iterable[dict], batch_size: int = 32):
         ids_batch, texts_batch, mets_batch = [], [], []
-        total = 0
         for c in chunks:
-            total += 1
             cid = f"{doc_id}-{c.get('chunk_id','')}"
             ids_batch.append(cid)
             texts_batch.append(c["text"])
             mets_batch.append({"doc_id": doc_id, "page": str(c.get("page", ""))})
-
             if len(texts_batch) >= batch_size:
                 embs = self.model.encode(texts_batch, convert_to_numpy=True)
                 embs_list = embs.tolist() if isinstance(embs, (list, np.ndarray)) else [list(e) for e in embs]
@@ -52,7 +62,6 @@ class EmbeddingStore:
                 except Exception as e:
                     st.warning(f"Chroma add batch failed: {e}")
                 ids_batch, texts_batch, mets_batch = [], [], []
-
         if texts_batch:
             embs = self.model.encode(texts_batch, convert_to_numpy=True)
             embs_list = embs.tolist() if isinstance(embs, (list, np.ndarray)) else [list(e) for e in embs]
@@ -60,7 +69,6 @@ class EmbeddingStore:
                 self.col.add(documents=texts_batch, metadatas=mets_batch, ids=ids_batch, embeddings=embs_list)
             except Exception as e:
                 st.warning(f"Chroma add final batch failed: {e}")
-
         if getattr(self, "_persistent", False):
             try:
                 self.client.persist()
