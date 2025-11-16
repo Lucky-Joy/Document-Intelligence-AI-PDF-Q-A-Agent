@@ -1,0 +1,21 @@
+# Virtual environment
+.venv/
+venv/
+
+# Vector DB and uploads
+.data/
+uploads/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Streamlit secrets (never commit)
+.streamlit/secrets.toml
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
