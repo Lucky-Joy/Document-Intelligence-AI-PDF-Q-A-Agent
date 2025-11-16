@@ -1,23 +1,36 @@
-import re
 import pandas as pd
-from typing import List, Dict
+import re
 
-def detect_tables_and_extract_text(page_text: str):
-    lines = [ln.rstrip() for ln in page_text.splitlines() if ln.strip()]
-    if not lines:
+
+def detect_tables_and_extract(page_text: str):
+    if not page_text or len(page_text.strip()) == 0:
         return []
 
-    table_lines = [ln for ln in lines if len(re.findall(r"\s{2,}", ln)) >= 1]
-    if len(table_lines) < 2:
-        return []
+    lines = [l.strip() for l in page_text.split("\n")]
+    lines = [l for l in lines if l]
 
-    rows = []
-    for ln in table_lines:
-        cols = [c.strip() for c in re.split(r"\s{2,}", ln) if c.strip()]
-        rows.append(cols)
+    tables = []
+    current = []
 
-    maxc = max(len(r) for r in rows)
-    data = [r + [""] * (maxc - len(r)) for r in rows]
-    df = pd.DataFrame(data)
-    preview = df.head(50)
-    return [{"rows": rows, "preview": preview}]
+    def flush():
+        if not current:
+            return
+        rows = []
+        for row in current:
+            cols = re.split(r"\s{2,}", row.strip())
+            rows.append(cols)
+        try:
+            df = pd.DataFrame(rows)
+        except Exception:
+            df = None
+        tables.append({"rows": rows, "preview": df})
+
+    for line in lines:
+        if re.search(r"\S+\s{2,}\S+", line):
+            current.append(line)
+        else:
+            flush()
+            current = []
+
+    flush()
+    return tables
