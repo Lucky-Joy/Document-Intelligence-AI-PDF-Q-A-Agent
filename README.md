@@ -127,6 +127,3 @@ The deployed link is included in the submission.
 Built by **Lucky Joy Tutika**
 
 ---
-
-Want a badge-style header or a diagram for your architecture? I can generate that too.
-
